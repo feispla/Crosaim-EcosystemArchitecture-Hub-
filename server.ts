@@ -58,6 +58,129 @@ async function startServer() {
     res.json(testResult);
   });
 
+  app.get('/api/supabase/sql', (req, res) => {
+    res.type('text/plain').send(supabaseAdminService.getSqlMigrationScript());
+  });
+
+  // Discord Webhook Details (Real Server & Channel Information)
+  app.get('/api/discord/webhook', async (req, res) => {
+    const info = await discordService.getWebhookInfo();
+    res.json(info);
+  });
+
+  // Real CROSAIM Roster Endpoints (Persisted in Supabase & Local Store)
+  app.get('/api/crosaim/roster', async (req, res) => {
+    const roster = await supabaseAdminService.getRoster();
+    res.json({
+      success: true,
+      roster,
+      count: roster.length
+    });
+  });
+
+  app.post('/api/crosaim/roster', async (req, res) => {
+    try {
+      const player = req.body;
+      if (!player.name || !player.role) {
+        return res.status(400).json({ success: false, error: 'name y role son requeridos' });
+      }
+      await supabaseAdminService.saveRosterMember(player);
+      res.json({ success: true, player });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Real CROSAIM Candidates Endpoints (Persisted in Supabase & Local Store)
+  app.get('/api/crosaim/candidates', async (req, res) => {
+    const candidates = await supabaseAdminService.getCandidates();
+    res.json({
+      success: true,
+      candidates,
+      count: candidates.length
+    });
+  });
+
+  app.post('/api/crosaim/candidates', async (req, res) => {
+    try {
+      const candidate = req.body;
+      if (!candidate.riotId || !candidate.discordTag) {
+        return res.status(400).json({ success: false, error: 'riotId y discordTag son requeridos' });
+      }
+      await supabaseAdminService.saveCandidate(candidate);
+
+      // Also trigger event to Event Bus & Discord
+      const playerName = `${candidate.riotId}#${candidate.tagLine || 'LAN'}`;
+      const eventRes = await crosaimEventBus.dispatch({
+        eventType: 'PLAYER_APPLICATION_CREATED',
+        source: 'WEB_PORTAL',
+        target: 'ALL',
+        user: 'Aspirante Web',
+        player: playerName,
+        previousStage: 'NONE',
+        newStage: candidate.stage || 'APPLY',
+        payload: {
+          applicant: playerName,
+          riotId: candidate.riotId,
+          tagLine: candidate.tagLine,
+          discordTag: candidate.discordTag,
+          role: candidate.role,
+          rank: candidate.rank,
+          trackingCode: candidate.trackingCode
+        }
+      });
+
+      res.json({ success: true, candidate, event: eventRes });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.patch('/api/crosaim/candidates/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      const candidate = { id, ...updates };
+      await supabaseAdminService.saveCandidate(candidate);
+      res.json({ success: true, candidate });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Real System Stats (Real Counts, Zero Fictitious Numbers)
+  app.get('/api/crosaim/stats', async (req, res) => {
+    const [roster, candidates, webhookStatus, supabaseStatus] = await Promise.all([
+      supabaseAdminService.getRoster(),
+      supabaseAdminService.getCandidates(),
+      discordService.getWebhookInfo(),
+      Promise.resolve(supabaseAdminService.getStatus())
+    ]);
+
+    const eventsHistory = crosaimEventBus.getHistory();
+
+    res.json({
+      success: true,
+      stats: {
+        totalRosterMembers: roster.length,
+        totalCandidates: candidates.length,
+        candidatesByStage: {
+          apply: candidates.filter(c => c.stage === 'APPLY').length,
+          review: candidates.filter(c => c.stage === 'REVIEW').length,
+          interview: candidates.filter(c => c.stage === 'INTERVIEW').length,
+          tryout: candidates.filter(c => c.stage === 'TRYOUT').length,
+          roster: candidates.filter(c => c.stage === 'ROSTER').length,
+          rejected: candidates.filter(c => c.status === 'rejected').length
+        },
+        totalSignalsDispatched: eventsHistory.length,
+        discordWebhookActive: webhookStatus.success,
+        discordChannel: webhookStatus.info?.channelId || null,
+        discordGuild: webhookStatus.info?.guildId || null,
+        supabaseConnected: supabaseStatus.isConfigured
+      }
+    });
+  });
+
   // Discord OAuth2 Public Config (Never exposes client_secret)
   app.get('/api/auth/discord/config', (req, res) => {
     const redirectUri = discordOAuthService.getRedirectUri(req);

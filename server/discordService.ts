@@ -76,17 +76,48 @@ export class DiscordService {
   private applicationId: string;
   private defaultChannelId: string;
   private webhookUrl: string;
+  private cachedWebhookInfo: any = null;
 
   constructor() {
     // Sanitize credentials trimming any accidental leading/trailing spaces
-    this.botToken = (process.env.DISCORD_BOT_TOKEN || 'MTU0NzMwOTk0OTEzNzQ1MzE2Nw.GoYGyp.0K8ltA-DKEzi0riIYpmoenlBpKbORvKVYGv-nw').trim();
+    this.botToken = (process.env.DISCORD_BOT_TOKEN || '').trim();
     this.applicationId = (process.env.DISCORD_APPLICATION_ID || '1547309949137453167').trim();
-    this.defaultChannelId = (process.env.DISCORD_DEFAULT_CHANNEL_ID || '').trim();
+    this.defaultChannelId = (process.env.DISCORD_DEFAULT_CHANNEL_ID || '1548434884433805372').trim();
     this.webhookUrl = (process.env.DISCORD_WEBHOOK_URL || '').trim();
   }
 
   public getApplicationId(): string {
     return this.applicationId;
+  }
+
+  public getWebhookUrl(): string {
+    return this.webhookUrl;
+  }
+
+  public async getWebhookInfo(): Promise<{ success: boolean; info?: any; error?: string }> {
+    if (!this.webhookUrl) {
+      return { success: false, error: 'DISCORD_WEBHOOK_URL no configurado' };
+    }
+    if (this.cachedWebhookInfo) {
+      return { success: true, info: this.cachedWebhookInfo };
+    }
+    try {
+      const res = await fetch(this.webhookUrl);
+      if (res.ok) {
+        const data = await res.json();
+        this.cachedWebhookInfo = {
+          id: data.id,
+          name: data.name,
+          channelId: data.channel_id,
+          guildId: data.guild_id,
+          avatar: data.avatar
+        };
+        return { success: true, info: this.cachedWebhookInfo };
+      }
+      return { success: false, error: `Webhook error: ${res.status}` };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
   }
 
   public getInviteUrl(): string {
@@ -95,33 +126,48 @@ export class DiscordService {
   }
 
   /**
-   * Fetch real bot info from Discord API v10
+   * Fetch real status from Discord Webhook / Bot
    */
-  public async getBotStatus(): Promise<{ success: boolean; bot?: DiscordBotInfo; error?: string }> {
-    try {
-      if (!this.botToken) {
-        return { success: false, error: 'DISCORD_BOT_TOKEN no configurado en el servidor' };
-      }
+  public async getBotStatus(): Promise<{ success: boolean; bot?: DiscordBotInfo; webhookInfo?: any; error?: string }> {
+    // 1. Check Webhook first as it is direct and verified
+    const webhookRes = await this.getWebhookInfo();
 
-      const response = await fetch('https://discord.com/api/v10/users/@me', {
-        headers: {
-          Authorization: `Bot ${this.botToken}`
+    if (this.botToken) {
+      try {
+        const response = await fetch('https://discord.com/api/v10/users/@me', {
+          headers: {
+            Authorization: `Bot ${this.botToken}`
+          }
+        });
+
+        if (response.ok) {
+          const bot = await response.json() as DiscordBotInfo;
+          return { success: true, bot, webhookInfo: webhookRes.info };
         }
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        return {
-          success: false,
-          error: `Discord API respondió con status ${response.status}: ${errText}`
-        };
+      } catch (err: any) {
+        console.warn('Bot token check failed, checking webhook fallback', err.message);
       }
-
-      const bot = await response.json() as DiscordBotInfo;
-      return { success: true, bot };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Error de red al conectar con Discord API' };
     }
+
+    if (webhookRes.success && webhookRes.info) {
+      return {
+        success: true,
+        bot: {
+          id: webhookRes.info.id || this.applicationId,
+          username: webhookRes.info.name || 'CROSAIM Bot',
+          discriminator: '0000',
+          avatar: webhookRes.info.avatar,
+          bot: true,
+          application_id: this.applicationId
+        },
+        webhookInfo: webhookRes.info
+      };
+    }
+
+    return {
+      success: false,
+      error: 'Ni DISCORD_BOT_TOKEN ni DISCORD_WEBHOOK_URL válidos configurados'
+    };
   }
 
   /**
@@ -197,19 +243,23 @@ export class DiscordService {
     // 1. If a webhook URL is available, send via Webhook
     if (targetWebhook && targetWebhook.startsWith('https://discord.com/api/webhooks/')) {
       try {
+        const webhookInfo = this.cachedWebhookInfo || {};
         const res = await fetch(targetWebhook, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             content: options.content,
             embeds: options.embeds,
-            username: 'CROSAIM Operations Bot',
-            avatar_url: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=150&auto=format&fit=crop'
+            username: webhookInfo.name || 'CROSAIM Bot Operativo',
+            avatar_url: webhookInfo.avatar ? `https://cdn.discordapp.com/avatars/${webhookInfo.id}/${webhookInfo.avatar}.png` : undefined
           })
         });
 
         if (res.ok || res.status === 204) {
-          return { success: true, targetChannel: 'Discord Webhook' };
+          return {
+            success: true,
+            targetChannel: webhookInfo.channelId ? `Canal Discord #${webhookInfo.channelId}` : 'Canal Oficial Discord CROSAIM'
+          };
         }
       } catch (webhookErr: any) {
         console.warn('Webhook delivery failed, attempting bot channel delivery', webhookErr);

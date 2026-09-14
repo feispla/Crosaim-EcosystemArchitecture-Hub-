@@ -76,7 +76,17 @@ export const RosterShowcase: React.FC<RosterShowcaseProps> = ({ roster }) => {
 
         {/* Players Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          {filteredPlayers.map(player => (
+          {filteredPlayers.length === 0 ? (
+            <div className="col-span-full py-12 px-6 rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 text-center">
+              <Trophy className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+              <h3 className="text-lg font-bold text-white mb-1">Sin jugadores registrados en {selectedTeam}</h3>
+              <p className="text-sm text-slate-400 max-w-md mx-auto mb-2">
+                Los aspirantes que aprueben el tryout y pasen a la fase <strong>ROSTER</strong> en el Control Center se registrarán automáticamente aquí y en Supabase.
+              </p>
+              <span className="text-xs font-mono text-cyan-400">Sincronización en tiempo real activa vía Supabase &amp; Discord</span>
+            </div>
+          ) : (
+            filteredPlayers.map(player => (
             <div
               key={player.id}
               className="bg-slate-900/80 rounded-2xl border border-slate-800 hover:border-cyan-500/50 transition-all p-5 flex flex-col justify-between group relative overflow-hidden shadow-lg"
@@ -140,7 +150,8 @@ export const RosterShowcase: React.FC<RosterShowcaseProps> = ({ roster }) => {
                 </div>
               </div>
             </div>
-          ))}
+            ))
+          )}
         </div>
 
         {/* Upcoming Matches & Scrims Card */}

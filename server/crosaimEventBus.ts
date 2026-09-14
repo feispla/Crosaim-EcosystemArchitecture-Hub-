@@ -2,6 +2,7 @@ import { discordService, DiscordEmbed } from './discordService';
 import { supabaseAdminService } from './supabaseService';
 
 export interface CrosaimEventPayload {
+  id?: string;
   eventId: string;
   eventType:
     | 'PLAYER_APPLICATION_CREATED'
@@ -39,6 +40,7 @@ export class CrosaimEventBus {
   constructor() {
     // Seed initial event for verification
     this.history.push({
+      id: 'evt-init-001',
       eventId: 'evt-init-001',
       eventType: 'PLAYER_APPLICATION_CREATED',
       timestamp: new Date().toISOString(),
@@ -209,6 +211,7 @@ export class CrosaimEventBus {
 
     const fullEvent: CrosaimEventPayload = {
       ...eventData,
+      id: eventId,
       eventId,
       timestamp,
       hmacSignature,

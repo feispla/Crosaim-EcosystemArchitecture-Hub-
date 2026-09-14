@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CandidateApplication } from '../types';
+import { soundFX } from '../utils/audioFX';
 import { UserCheck, ShieldCheck, Gamepad2, Send, CheckCircle2, Search, ArrowRight, Clock, Star } from 'lucide-react';
 
 interface TryoutRecruitmentFlowProps {
@@ -23,10 +24,18 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
   const [submittedCode, setSubmittedCode] = useState<string | null>(null);
 
   // Tracking State
-  const [searchCode, setSearchCode] = useState('CRO-7821');
+  const [searchCode, setSearchCode] = useState(candidates[0]?.trackingCode || '');
   const [trackedCandidate, setTrackedCandidate] = useState<CandidateApplication | null>(
-    candidates.find(c => c.trackingCode === 'CRO-7821') || candidates[0]
+    candidates[0] || null
   );
+
+  // Sync if candidates load asynchronously
+  React.useEffect(() => {
+    if (!trackedCandidate && candidates.length > 0) {
+      setTrackedCandidate(candidates[0]);
+      setSearchCode(candidates[0].trackingCode);
+    }
+  }, [candidates, trackedCandidate]);
 
   const stages = [
     { key: 'APPLY', label: '01. APPLY', desc: 'Postulación y registro de credenciales' },
@@ -60,6 +69,7 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
       notes: experience || 'Postulación enviada vía CROSAIM Web Portal.'
     };
 
+    soundFX.playSuccess();
     onNewApplication(newCandidate);
     setSubmittedCode(newCode);
     setTrackedCandidate(newCandidate);
@@ -73,9 +83,13 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
   };
 
   const handleTrack = () => {
+    soundFX.playClick();
     const found = candidates.find(c => c.trackingCode.toUpperCase() === searchCode.trim().toUpperCase());
     if (found) {
+      soundFX.playSuccess();
       setTrackedCandidate(found);
+    } else {
+      soundFX.playWarning();
     }
   };
 

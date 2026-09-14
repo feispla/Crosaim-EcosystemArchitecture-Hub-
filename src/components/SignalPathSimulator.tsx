@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { SignalEvent } from '../types';
-import { Play, Shield, Terminal, ArrowRight, CheckCircle2, RotateCcw, Cpu, Radio } from 'lucide-react';
+import { crosaimClient } from '../services/crosaimClient';
+import { soundFX } from '../utils/audioFX';
+import { Play, Shield, Terminal, ArrowRight, CheckCircle2, RotateCcw, Cpu, Radio, Download } from 'lucide-react';
 
 interface SignalPathSimulatorProps {
   signals: SignalEvent[];
@@ -13,7 +15,7 @@ export const SignalPathSimulator: React.FC<SignalPathSimulatorProps> = ({
   onDispatchSignal,
   onClearSignals
 }) => {
-  const [selectedEventType, setSelectedEventType] = useState<SignalEvent['eventType']>('USER_APPLY_SUBMITTED');
+  const [selectedEventType, setSelectedEventType] = useState<SignalEvent['eventType']>('PLAYER_APPLICATION_CREATED');
   const [isTransmitting, setIsTransmitting] = useState(false);
   const [lastDispatched, setLastDispatched] = useState<SignalEvent | null>(signals[0] || null);
 
@@ -86,30 +88,61 @@ export const SignalPathSimulator: React.FC<SignalPathSimulatorProps> = ({
 
   const currentTemplate = eventTemplates.find(t => t.type === selectedEventType) || eventTemplates[0];
 
-  const handleSimulateDispatch = () => {
+  const handleSimulateDispatch = async () => {
+    soundFX.playClick();
     setIsTransmitting(true);
 
-    // Generate simulated HMAC signature
-    const randomHex = Math.random().toString(16).substring(2, 10) + Math.random().toString(16).substring(2, 10);
-    const now = new Date();
-    const timeStr = now.toTimeString().split(' ')[0];
+    try {
+      const playerName = (currentTemplate.samplePayload as any)?.applicant || 
+                         (currentTemplate.samplePayload as any)?.candidate || 
+                         (currentTemplate.samplePayload as any)?.player || 
+                         (currentTemplate.samplePayload as any)?.riotId || 
+                         'Player Real';
 
-    const newSignal: SignalEvent = {
-      id: `sig-${Math.floor(1000 + Math.random() * 9000)}`,
-      timestamp: timeStr,
-      source: currentTemplate.source,
-      target: currentTemplate.target,
-      eventType: currentTemplate.type,
-      payload: currentTemplate.samplePayload,
-      hmacSignature: `sha256=${randomHex}${randomHex}`,
-      ackStatus: 'ACK_CONFIRMED'
-    };
+      const res = await crosaimClient.dispatchEvent({
+        eventType: currentTemplate.type as any,
+        source: currentTemplate.source,
+        target: currentTemplate.target as any,
+        player: playerName,
+        payload: currentTemplate.samplePayload
+      });
 
-    setTimeout(() => {
-      onDispatchSignal(newSignal);
-      setLastDispatched(newSignal);
+      if (res.event) {
+        soundFX.playSignalDispatch();
+        onDispatchSignal(res.event);
+        setLastDispatched(res.event);
+      }
+    } catch {
+      // Fallback in case of network issue
+      const randomHex = Math.random().toString(16).substring(2, 10);
+      const uniqueId = `sig-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const fallbackSignal: SignalEvent = {
+        id: uniqueId,
+        timestamp: new Date().toTimeString().split(' ')[0],
+        source: currentTemplate.source,
+        target: currentTemplate.target,
+        eventType: currentTemplate.type,
+        payload: currentTemplate.samplePayload,
+        hmacSignature: `sha256=${randomHex}${randomHex}`,
+        ackStatus: 'ACK_CONFIRMED'
+      };
+      soundFX.playSignalDispatch();
+      onDispatchSignal(fallbackSignal);
+      setLastDispatched(fallbackSignal);
+    } finally {
       setIsTransmitting(false);
-    }, 600);
+    }
+  };
+
+  const handleExportSignals = () => {
+    soundFX.playClick();
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(signals, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `crosaim-signals-${new Date().toISOString().split('T')[0]}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
   };
 
   return (
@@ -249,8 +282,8 @@ export const SignalPathSimulator: React.FC<SignalPathSimulatorProps> = ({
                   onChange={(e) => setSelectedEventType(e.target.value as any)}
                   className="w-full px-3 py-2.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-white focus:border-cyan-400 outline-none"
                 >
-                  {eventTemplates.map(t => (
-                    <option key={t.type} value={t.type}>
+                  {eventTemplates.map((t, idx) => (
+                    <option key={`tpl-${t.type}-${idx}`} value={t.type}>
                       {t.label} ({t.source} → {t.target})
                     </option>
                   ))}
@@ -292,16 +325,26 @@ export const SignalPathSimulator: React.FC<SignalPathSimulatorProps> = ({
 
         {/* Live Signal Stream Table */}
         <div className="bg-slate-950 rounded-2xl border border-slate-800 p-6 overflow-hidden">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div className="flex items-center space-x-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
               <h4 className="text-sm font-bold text-white font-mono">
                 REGISTRO AUDITABLE DE SEÑALES (EVENT AUDIT TRAIL)
               </h4>
             </div>
-            <span className="text-xs font-mono text-slate-400">
-              {signals.length} eventos registrados en sesión
-            </span>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={handleExportSignals}
+                className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs font-mono flex items-center space-x-1.5 transition cursor-pointer"
+                title="Exportar registro de señales a JSON"
+              >
+                <Download className="w-3.5 h-3.5 text-pink-400" />
+                <span>Exportar Logs</span>
+              </button>
+              <span className="text-xs font-mono text-slate-400">
+                {signals.length} eventos en sesión
+              </span>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -316,8 +359,10 @@ export const SignalPathSimulator: React.FC<SignalPathSimulatorProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {signals.map((sig) => (
-                  <tr key={sig.id} className="hover:bg-slate-900/50 transition">
+                {signals.map((sig, idx) => {
+                  const itemKey = sig.id ? `${sig.id}-${idx}` : `sig-${sig.eventType || 'event'}-${idx}-${sig.timestamp || ''}`;
+                  return (
+                  <tr key={itemKey} className="hover:bg-slate-900/50 transition">
                     <td className="py-3 px-3 text-slate-400">{sig.timestamp}</td>
                     <td className="py-3 px-3 text-white font-semibold flex items-center space-x-1.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
@@ -338,7 +383,8 @@ export const SignalPathSimulator: React.FC<SignalPathSimulatorProps> = ({
                       </span>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

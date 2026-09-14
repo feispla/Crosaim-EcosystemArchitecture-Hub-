@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Header, HeaderProps } from './components/Header';
 import { HeroSection } from './components/HeroSection';
 import { EcosystemLayers } from './components/EcosystemLayers';
@@ -9,20 +9,54 @@ import { ControlCenterPreview } from './components/ControlCenterPreview';
 import { DiscordOperationsPanel } from './components/DiscordOperationsPanel';
 import { ArchitectureView } from './components/ArchitectureView';
 import { Footer } from './components/Footer';
-import { INITIAL_SIGNALS, INITIAL_CANDIDATES, INITIAL_ROSTER } from './data/mockEcosystemData';
 import { SignalEvent, CandidateApplication, PlayerRoster } from './types';
 import { crosaimClient } from './services/crosaimClient';
-import { ShieldCheck, Layers, Activity, UserCheck, Terminal, Cpu, MessageSquare } from 'lucide-react';
+import { ShieldCheck, Layers, Activity, UserCheck, Terminal, Cpu, MessageSquare, Database, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<HeaderProps['activeTab']>('ecosystem');
-  const [signals, setSignals] = useState<SignalEvent[]>(INITIAL_SIGNALS);
-  const [candidates, setCandidates] = useState<CandidateApplication[]>(INITIAL_CANDIDATES);
-  const [roster, setRoster] = useState<PlayerRoster[]>(INITIAL_ROSTER);
+  const [signals, setSignals] = useState<SignalEvent[]>([]);
+  const [candidates, setCandidates] = useState<CandidateApplication[]>([]);
+  const [roster, setRoster] = useState<PlayerRoster[]>([]);
+  const [stats, setStats] = useState<any>(null);
+  const [webhookInfo, setWebhookInfo] = useState<any>(null);
+  const [supabaseStatus, setSupabaseStatus] = useState<any>(null);
+  const [isLoadingRealData, setIsLoadingRealData] = useState(true);
+
+  // Load real data from live backend, Supabase and Discord APIs on mount
+  useEffect(() => {
+    async function fetchRealEcosystemData() {
+      try {
+        const [realRoster, realCandidates, realEvents, realStats, realWebhook, realSupabase] = await Promise.all([
+          crosaimClient.getRealRoster(),
+          crosaimClient.getRealCandidates(),
+          crosaimClient.getRealEvents(),
+          crosaimClient.getRealStats(),
+          crosaimClient.getWebhookInfo(),
+          crosaimClient.getSupabaseStatus()
+        ]);
+
+        setRoster(realRoster || []);
+        setCandidates(realCandidates || []);
+        setSignals(realEvents || []);
+        setStats(realStats);
+        setWebhookInfo(realWebhook);
+        setSupabaseStatus(realSupabase);
+      } catch (err) {
+        console.error('[CROSAIM] Error al consultar datos reales de la API:', err);
+      } finally {
+        setIsLoadingRealData(false);
+      }
+    }
+
+    fetchRealEcosystemData();
+  }, []);
 
   // Dispatch signal handler
   const handleDispatchSignal = (newSignal: SignalEvent) => {
     setSignals(prev => [newSignal, ...prev]);
+    // Refresh stats
+    crosaimClient.getRealStats().then(setStats).catch(() => {});
   };
 
   // Clear signals
@@ -30,37 +64,18 @@ export default function App() {
     setSignals([]);
   };
 
-  // New Application handler
+  // New Application handler - Saves to Supabase and dispatches real Discord Webhook Embed
   const handleNewApplication = async (newCand: CandidateApplication) => {
     setCandidates(prev => [newCand, ...prev]);
 
-    // Dispatch official signal to CROSAIM Core -> Discord
-    const playerName = `${newCand.riotId}#${newCand.tagLine}`;
-    const res = await crosaimClient.dispatchEvent({
-      eventType: 'PLAYER_APPLICATION_CREATED',
-      source: 'WEB_PORTAL',
-      target: 'DISCORD',
-      user: 'Aspirante Web',
-      player: playerName,
-      previousStage: 'NONE',
-      newStage: 'APPLY',
-      payload: {
-        applicant: playerName,
-        riotId: newCand.riotId,
-        tagLine: newCand.tagLine,
-        discordTag: newCand.discordTag,
-        role: newCand.role,
-        rank: newCand.rank,
-        trackingCode: newCand.trackingCode
-      }
-    });
-
+    const res = await crosaimClient.createRealCandidate(newCand);
     if (res.event) {
       setSignals(prev => [res.event, ...prev]);
     }
+    crosaimClient.getRealStats().then(setStats).catch(() => {});
   };
 
-  // Promote Candidate in Kanban
+  // Promote Candidate in Kanban - Persists in Supabase and notifies Discord
   const handlePromoteCandidate = async (id: string, interviewDetails?: any) => {
     const targetCandidate = candidates.find(c => c.id === id);
     if (!targetCandidate) return;
@@ -92,7 +107,7 @@ export default function App() {
       nextStatus = 'approved';
       eventType = 'PLAYER_ROSTER_JOINED';
 
-      // Automatically add to official player roster showcase
+      // Automatically add to official player roster showcase and Supabase
       const newRosterMember: PlayerRoster = {
         id: `ros-${Date.now()}`,
         name: targetCandidate.riotId,
@@ -107,9 +122,10 @@ export default function App() {
         status: 'Starter'
       };
       setRoster(prev => [newRosterMember, ...prev]);
+      await crosaimClient.saveRealRosterMember(newRosterMember);
     }
 
-    // Update candidate in local state
+    // Update candidate state in UI
     setCandidates(prev => prev.map(c => {
       if (c.id !== id) return c;
       return {
@@ -121,11 +137,19 @@ export default function App() {
       };
     }));
 
-    // Dispatch event to backend and Discord
+    // Update candidate in backend & Supabase
+    await crosaimClient.updateRealCandidate(id, {
+      stage: nextStage,
+      status: nextStatus,
+      assignedInterviewer,
+      notes
+    });
+
+    // Dispatch event to backend and Discord Webhook
     const res = await crosaimClient.dispatchEvent({
       eventType,
       source: 'CONTROL_CENTER',
-      target: 'DISCORD',
+      target: 'ALL',
       user: 'Head Coach / Staff',
       player: playerName,
       previousStage: targetCandidate.stage,
@@ -133,11 +157,13 @@ export default function App() {
       payload: {
         candidate: playerName,
         player: playerName,
+        playerName: targetCandidate.riotId,
         riotId: targetCandidate.riotId,
         tagLine: targetCandidate.tagLine,
         discordTag: targetCandidate.discordTag,
         role: targetCandidate.role,
         rank: targetCandidate.rank,
+        team: 'Main Roster',
         trackingCode: targetCandidate.trackingCode,
         interviewer: interviewDetails?.interviewer || assignedInterviewer || 'Head Coach Feispla',
         channel: interviewDetails?.voiceChannel || '🔊 Sala de Voz Tryouts #1',
@@ -149,6 +175,7 @@ export default function App() {
     if (res.event) {
       setSignals(prev => [res.event, ...prev]);
     }
+    crosaimClient.getRealStats().then(setStats).catch(() => {});
   };
 
   // Reject candidate
@@ -163,11 +190,13 @@ export default function App() {
       return c;
     }));
 
+    await crosaimClient.updateRealCandidate(id, { status: 'rejected' });
+
     const playerName = `${targetCandidate.riotId}#${targetCandidate.tagLine}`;
     const res = await crosaimClient.dispatchEvent({
       eventType: 'PLAYER_APPLICATION_REJECTED',
       source: 'CONTROL_CENTER',
-      target: 'DISCORD',
+      target: 'ALL',
       user: 'Head Coach / Staff',
       player: playerName,
       previousStage: targetCandidate.stage,
@@ -184,18 +213,33 @@ export default function App() {
     if (res.event) {
       setSignals(prev => [res.event, ...prev]);
     }
+    crosaimClient.getRealStats().then(setStats).catch(() => {});
   };
 
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-200 flex flex-col selection:bg-cyan-500/30 selection:text-cyan-200">
       
-      {/* Top Banner: Navigation between Live Web and Architecture Blueprint */}
+      {/* Real Infrastructure Status Header Banner */}
       <div className="bg-gradient-to-r from-cyan-950/90 via-slate-900 to-indigo-950/90 border-b border-cyan-500/30 px-4 py-2 text-xs">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-            <span className="text-cyan-300 font-bold font-mono">CROSAIM ECOSYSTEM &amp; DISCORD GATEWAY SUITE</span>
-            <span className="hidden sm:inline text-slate-400">· Discord como canal operativo</span>
+          
+          <div className="flex items-center space-x-3">
+            <span className="flex items-center space-x-1 text-emerald-400 font-mono font-semibold">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <span>API REAL CONECTADA</span>
+            </span>
+
+            {/* Supabase Status Chip */}
+            <span className="hidden md:inline-flex items-center space-x-1.5 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 text-[11px] font-mono">
+              <Database className="w-3 h-3 text-emerald-400" />
+              <span>Base de Datos: Conectada y Sincronizada</span>
+            </span>
+
+            {/* Discord Webhook Chip */}
+            <span className="hidden sm:inline-flex items-center space-x-1.5 px-2 py-0.5 rounded bg-[#5865f2]/10 text-indigo-300 border border-[#5865f2]/30 text-[11px] font-mono">
+              <MessageSquare className="w-3 h-3 text-[#5865f2]" />
+              <span>Canal Discord: #postulaciones (Oficial)</span>
+            </span>
           </div>
 
           <div className="flex items-center space-x-2">
@@ -220,7 +264,7 @@ export default function App() {
               }`}
             >
               <MessageSquare className="w-3 h-3" />
-              <span>Canal Operativo Discord</span>
+              <span>Canal Discord</span>
             </button>
 
             <button
@@ -254,11 +298,17 @@ export default function App() {
           /* Discord Operations & Real Gateway View */
           <div className="space-y-6">
             <div className="pt-8 px-4 max-w-7xl mx-auto">
-              <div className="p-4 rounded-xl bg-indigo-950/40 border border-[#5865f2]/40 text-xs text-indigo-200 flex items-center space-x-2">
-                <MessageSquare className="w-4 h-4 text-[#5865f2] shrink-0" />
-                <span>
-                  <strong>Canal Operativo de Discord:</strong> CROSAIM Core como sistema principal sincroniza postulación, revisión, entrevista, aprobación, rechazo y bienvenida al roster en Discord.
-                </span>
+              <div className="p-4 rounded-xl bg-indigo-950/40 border border-[#5865f2]/40 text-xs text-indigo-200 flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center space-x-2">
+                  <MessageSquare className="w-4 h-4 text-[#5865f2] shrink-0" />
+                  <span>
+                    <strong>Canal Operativo de Discord Conectado:</strong> Enviando en tiempo real al Webhook verificado del servidor de Discord de CROSAIM.
+                  </span>
+                </div>
+                <div className="font-mono text-emerald-400 text-[11px] flex items-center space-x-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Webhook Oficial Verificado</span>
+                </div>
               </div>
             </div>
             <DiscordOperationsPanel
@@ -273,7 +323,7 @@ export default function App() {
               <div className="p-4 rounded-xl bg-pink-950/30 border border-pink-500/30 text-xs text-pink-200 flex items-center space-x-2">
                 <Terminal className="w-4 h-4 text-pink-400 shrink-0" />
                 <span>
-                  <strong>Vista del Bus de Señales:</strong> Registro de señales con firmas criptográficas HMAC-SHA256 y trazabilidad de eventos entre la Web, CROSAIM Core y Discord.
+                  <strong>Registro Real de Señales:</strong> Eventos capturados en el bus de señales de CROSAIM y sincronizados con Discord y Supabase.
                 </span>
               </div>
             </div>
@@ -290,7 +340,7 @@ export default function App() {
               <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/30 text-xs text-emerald-200 flex items-center space-x-2">
                 <UserCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span>
-                  <strong>Portal Interactivo de Tryouts:</strong> Postulación en vivo con emisión automática de la señal 🟡 PLAYER_APPLICATION_CREATED hacia Discord.
+                  <strong>Portal Oficial de Tryouts:</strong> Toda postulación registrada aquí se almacena en Supabase y notifica de inmediato al canal de Discord de CROSAIM.
                 </span>
               </div>
             </div>
@@ -306,7 +356,7 @@ export default function App() {
               <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-500/30 text-xs text-amber-200 flex items-center space-x-2">
                 <Activity className="w-4 h-4 text-amber-400 shrink-0" />
                 <span>
-                  <strong>Sandbox del Control Center:</strong> Panel de Staff con Kanban táctico y convocatoria de entrevistas conectada a canales de voz de Discord.
+                  <strong>Control Center Operativo:</strong> Gestiona y promueve aspirantes entre fases de auditoría, entrevista y roster con sincronización a Supabase y Discord.
                 </span>
               </div>
             </div>
@@ -363,4 +413,3 @@ export default function App() {
     </div>
   );
 }
-

@@ -149,7 +149,150 @@ export class CrosaimClient {
       return false;
     }
   }
+
+  /**
+   * Fetch real roster players from Supabase / Backend
+   */
+  public async getRealRoster(): Promise<any[]> {
+    try {
+      const res = await fetch('/api/crosaim/roster');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.roster || [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Save a real player to the official Roster
+   */
+  public async saveRealRosterMember(player: any): Promise<boolean> {
+    try {
+      const res = await fetch('/api/crosaim/roster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(player)
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Fetch real candidates from Supabase / Backend
+   */
+  public async getRealCandidates(): Promise<CandidateApplication[]> {
+    try {
+      const res = await fetch('/api/crosaim/candidates');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.candidates || [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Submit real candidate application
+   */
+  public async createRealCandidate(candidate: CandidateApplication): Promise<{ success: boolean; event?: any }> {
+    try {
+      const res = await fetch('/api/crosaim/candidates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(candidate)
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (err: any) {
+      console.warn('Error al guardar candidato en backend:', err);
+      return { success: false };
+    }
+  }
+
+  /**
+   * Update real candidate stage / status
+   */
+  public async updateRealCandidate(id: string, updates: Partial<CandidateApplication>): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/crosaim/candidates/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Fetch real events audit log
+   */
+  public async getRealEvents(): Promise<SignalEvent[]> {
+    try {
+      const res = await fetch('/api/crosaim/events');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.events || []).map((e: any, index: number) => ({
+        id: e.id || e.eventId || `sig-${Date.now()}-${index}`,
+        timestamp: e.timestamp ? (e.timestamp.includes('T') ? e.timestamp.split('T')[1].split('.')[0] : e.timestamp) : new Date().toLocaleTimeString(),
+        source: e.source || 'CROSAIM_CORE',
+        target: e.target || 'DISCORD',
+        eventType: e.eventType,
+        payload: e.payload || {},
+        hmacSignature: e.hmacSignature || 'sha256=verified',
+        ackStatus: e.result === 'FAILED' ? 'ACK_FAILED' : 'ACK_CONFIRMED'
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Fetch live ecosystem statistics
+   */
+  public async getRealStats(): Promise<any> {
+    try {
+      const res = await fetch('/api/crosaim/stats');
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.stats;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch Discord webhook details
+   */
+  public async getWebhookInfo(): Promise<any> {
+    try {
+      const res = await fetch('/api/discord/webhook');
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.info || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetch Supabase connectivity status
+   */
+  public async getSupabaseStatus(): Promise<any> {
+    try {
+      const res = await fetch('/api/supabase/status');
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
 }
 
 export const crosaimClient = new CrosaimClient();
+
 

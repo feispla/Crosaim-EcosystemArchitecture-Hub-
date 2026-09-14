@@ -494,14 +494,14 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
             </span>
           </div>
 
-          {/* Application ID Card */}
+          {/* Official Integration Card */}
           <div className="bg-slate-950/80 rounded-xl border border-slate-800 p-4 flex items-center justify-between">
             <div>
-              <div className="text-xs text-slate-400 font-mono">APPLICATION ID</div>
+              <div className="text-xs text-slate-400 font-mono">INTEGRACIÓN DISCORD</div>
               <div className="text-sm font-bold text-indigo-300 font-mono mt-0.5">
-                {botState.applicationId}
+                Bot Oficial CROSAIM
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">Crosaim.botdiscord // Gateway</div>
+              <div className="text-[11px] text-slate-500 mt-1">Sincronización de Tryouts y Staff</div>
             </div>
             <ShieldCheck className="w-5 h-5 text-emerald-400" />
           </div>
@@ -512,9 +512,9 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
               <div className="text-xs text-slate-400 font-mono">CANAL DE TRANSMISIÓN</div>
               <div className="text-sm font-bold text-white mt-0.5 flex items-center space-x-1">
                 <Hash className="w-3.5 h-3.5 text-cyan-400" />
-                <span>{targetChannelId ? `Canal ${targetChannelId}` : '#postulaciones-tryouts'}</span>
+                <span>{targetChannelId ? (targetChannelId.startsWith('#') ? targetChannelId : `#${targetChannelId}`) : '#postulaciones-tryouts'}</span>
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">Sincronización bidireccional activa</div>
+              <div className="text-[11px] text-slate-500 mt-1">Sincronización de avisos activa</div>
             </div>
             <Radio className="w-5 h-5 text-cyan-400 animate-pulse" />
           </div>
@@ -714,8 +714,10 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 bg-slate-950">
-                    {signals.map(s => (
-                      <tr key={s.id} className="hover:bg-slate-900/40 transition">
+                    {signals.map((s, idx) => {
+                      const itemKey = s.id ? `${s.id}-${idx}` : `discord-sig-${s.eventType || 'event'}-${idx}-${s.timestamp || ''}`;
+                      return (
+                      <tr key={itemKey} className="hover:bg-slate-900/40 transition">
                         <td className="p-3 text-slate-400 whitespace-nowrap">{s.timestamp}</td>
                         <td className="p-3 font-bold text-white whitespace-nowrap">
                           <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 border border-slate-700">
@@ -738,7 +740,8 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
                           </span>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
