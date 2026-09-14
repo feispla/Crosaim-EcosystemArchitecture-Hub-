@@ -134,3 +134,13 @@ export interface TelemetryNode {
   rps: number;
   uptime: string;
 }
+
+export interface DiscordOAuthUser {
+  id: string;
+  username: string;
+  discriminator?: string;
+  global_name?: string;
+  avatarUrl: string;
+  role: string;
+  authenticatedAt: string;
+}

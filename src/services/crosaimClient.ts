@@ -90,6 +90,66 @@ export class CrosaimClient {
       return [];
     }
   }
+
+  /**
+   * Fetch OAuth configuration and public redirect URI
+   */
+  public async getOAuthConfig(): Promise<{ clientId: string; redirectUri: string; hasSecretConfigured: boolean; loginUrl: string }> {
+    try {
+      const res = await fetch('/api/auth/discord/config');
+      if (!res.ok) throw new Error('Error al consultar configuración OAuth');
+      return await res.json();
+    } catch {
+      return {
+        clientId: '1547309949137453167',
+        redirectUri: 'https://crosaim-centel.ai.studio/api/auth/discord/callback',
+        hasSecretConfigured: true,
+        loginUrl: '/api/auth/discord/login'
+      };
+    }
+  }
+
+  /**
+   * Check currently authenticated Discord session
+   */
+  public async getAuthenticatedUser(): Promise<{ authenticated: boolean; user: any | null }> {
+    try {
+      const res = await fetch('/api/auth/discord/me');
+      if (!res.ok) return { authenticated: false, user: null };
+      return await res.json();
+    } catch {
+      return { authenticated: false, user: null };
+    }
+  }
+
+  /**
+   * Request Discord OAuth2 Authorization URL and initiate popup
+   */
+  public async getOAuthAuthorizationUrl(): Promise<{ success: boolean; url?: string; state?: string; redirectUri?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/auth/discord/url');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Logout current Discord session
+   */
+  public async logoutOAuth(): Promise<boolean> {
+    try {
+      const res = await fetch('/api/auth/discord/logout', { method: 'POST' });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
 }
 
 export const crosaimClient = new CrosaimClient();
+

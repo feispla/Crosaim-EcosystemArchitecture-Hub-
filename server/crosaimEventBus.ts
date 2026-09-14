@@ -1,4 +1,5 @@
 import { discordService, DiscordEmbed } from './discordService';
+import { supabaseAdminService } from './supabaseService';
 
 export interface CrosaimEventPayload {
   eventId: string;
@@ -8,7 +9,9 @@ export interface CrosaimEventPayload {
     | 'PLAYER_INTERVIEW_STARTED'
     | 'PLAYER_APPLICATION_APPROVED'
     | 'PLAYER_APPLICATION_REJECTED'
-    | 'PLAYER_ROSTER_JOINED';
+    | 'PLAYER_ROSTER_JOINED'
+    | 'DISCORD_ROLE_ASSIGNED'
+    | 'DISCORD_OAUTH_LOGIN';
   timestamp: string;
   source: 'CROSAIM_CORE' | 'CONTROL_CENTER' | 'DISCORD_BOT' | 'BOT_OPERATIONS' | 'WEB_PORTAL';
   target: 'DISCORD' | 'SUPABASE' | 'CONTROL_CENTER' | 'ALL';
@@ -191,6 +194,17 @@ export class CrosaimEventBus {
           error: err.message
         };
       }
+    }
+
+    // Forward to Supabase Data Tier if target is SUPABASE or ALL, or when Service Role Key is available
+    if (eventData.target === 'SUPABASE' || eventData.target === 'ALL') {
+      supabaseAdminService.logEvent({
+        eventType: eventData.eventType,
+        source: eventData.source,
+        target: eventData.target,
+        payload: eventData.payload,
+        user: eventData.user || eventData.player
+      }).catch(err => console.warn('[Supabase Dispatch Error]', err));
     }
 
     const fullEvent: CrosaimEventPayload = {
