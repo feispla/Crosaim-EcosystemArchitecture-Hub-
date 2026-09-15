@@ -23,11 +23,24 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
   const [experience, setExperience] = useState('');
   const [submittedCode, setSubmittedCode] = useState<string | null>(null);
 
-  // Tracking State
+  // Tracking & Search State
   const [searchCode, setSearchCode] = useState(candidates[0]?.trackingCode || '');
+  const [realtimeSearch, setRealtimeSearch] = useState('');
   const [trackedCandidate, setTrackedCandidate] = useState<CandidateApplication | null>(
     candidates[0] || null
   );
+
+  // Filter candidates in real-time by Riot ID, tag, or tracking code
+  const realtimeSearchResults = React.useMemo(() => {
+    const q = realtimeSearch.trim().toLowerCase();
+    if (!q) return candidates;
+    return candidates.filter(c =>
+      c.riotId.toLowerCase().includes(q) ||
+      c.tagLine.toLowerCase().includes(q) ||
+      c.discordTag.toLowerCase().includes(q) ||
+      c.trackingCode.toLowerCase().includes(q)
+    );
+  }, [candidates, realtimeSearch]);
 
   // Sync if candidates load asynchronously
   React.useEffect(() => {
@@ -129,7 +142,10 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
           <div className="flex items-center space-x-2 p-1 bg-slate-900 rounded-xl border border-slate-800">
             <button
               id="tab-apply-form"
-              onClick={() => setActiveSubTab('apply')}
+              onClick={() => {
+                soundFX.playClick();
+                setActiveSubTab('apply');
+              }}
               className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                 activeSubTab === 'apply'
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
@@ -140,14 +156,17 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
             </button>
             <button
               id="tab-track-status"
-              onClick={() => setActiveSubTab('track')}
+              onClick={() => {
+                soundFX.playClick();
+                setActiveSubTab('track');
+              }}
               className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                 activeSubTab === 'track'
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              Rastrear Postulación (Código)
+              Buscador en Tiempo Real &amp; Tracking
             </button>
           </div>
         </div>
@@ -407,28 +426,79 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
           /* Track Sub-tab */
           <div className="bg-slate-900/90 rounded-2xl border border-slate-700/80 p-6 sm:p-8">
             
-            {/* Search Bar */}
-            <div className="max-w-md mx-auto mb-8">
-              <label className="block text-xs font-mono text-slate-300 mb-2 text-center">
-                Ingresa tu Código de Postulación (Ej: CRO-7821)
+            {/* Real-time Search Bar */}
+            <div className="max-w-2xl mx-auto mb-8">
+              <label className="block text-xs font-mono text-slate-300 mb-2 text-center uppercase tracking-wider">
+                Búsqueda en Tiempo Real de Aspirantes (Riot ID, Tag o Código de Seguimiento)
               </label>
-              <div className="flex items-center space-x-2">
+              <div className="relative">
+                <Search className="w-4 h-4 text-emerald-400 absolute left-4 top-1/2 -translate-y-1/2" />
                 <input
-                  id="input-tracking-code"
+                  id="input-realtime-candidate-search"
                   type="text"
-                  placeholder="CRO-7821"
-                  value={searchCode}
-                  onChange={(e) => setSearchCode(e.target.value)}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm font-mono text-white focus:border-emerald-400 outline-none text-center uppercase"
+                  placeholder="Escribe un Riot ID (ej: Kaiser, Valkyrie), tag (NA1, 0001) o código (CRO-7821)..."
+                  value={realtimeSearch}
+                  onChange={(e) => {
+                    const query = e.target.value;
+                    setRealtimeSearch(query);
+                    const q = query.trim().toLowerCase();
+                    if (q) {
+                      const match = candidates.find(c =>
+                        c.riotId.toLowerCase().includes(q) ||
+                        c.tagLine.toLowerCase().includes(q) ||
+                        c.discordTag.toLowerCase().includes(q) ||
+                        c.trackingCode.toLowerCase().includes(q)
+                      );
+                      if (match) {
+                        setTrackedCandidate(match);
+                        setSearchCode(match.trackingCode);
+                      }
+                    }
+                  }}
+                  className="w-full pl-11 pr-24 py-3 rounded-xl bg-slate-950 border border-slate-700 text-sm font-mono text-white placeholder-slate-500 focus:border-emerald-400 outline-none"
                 />
-                <button
-                  id="btn-search-tracking"
-                  onClick={handleTrack}
-                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center space-x-1.5 transition cursor-pointer"
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>Buscar</span>
-                </button>
+                {realtimeSearch && (
+                  <button
+                    onClick={() => {
+                      setRealtimeSearch('');
+                      soundFX.playClick();
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-mono transition cursor-pointer"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+
+              {/* Real-time Match Results Carousel / Quick Select */}
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                <span className="text-[11px] font-mono text-slate-400">
+                  {realtimeSearch ? `${realtimeSearchResults.length} aspirantes coincidentes:` : 'Aspirantes disponibles:'}
+                </span>
+                {realtimeSearchResults.slice(0, 5).map(c => {
+                  const isSelected = trackedCandidate?.id === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => {
+                        soundFX.playClick();
+                        setTrackedCandidate(c);
+                        setSearchCode(c.trackingCode);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
+                        isSelected
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-sm'
+                          : 'bg-slate-950/80 hover:bg-slate-800 text-slate-300 border border-slate-800'
+                      }`}
+                    >
+                      <span className="font-bold">{c.riotId}</span>
+                      <span className="text-slate-500">#{c.tagLine}</span>
+                      <span className="text-[10px] text-cyan-400 px-1 py-0.2 rounded bg-cyan-950/40">
+                        {c.trackingCode}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -505,7 +575,7 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
               </div>
             ) : (
               <div className="text-center py-12 text-slate-400 text-sm">
-                No se encontró ninguna postulación con el código &quot;{searchCode}&quot;.
+                No se encontró ninguna postulación que coincida con &quot;{realtimeSearch || searchCode}&quot;.
               </div>
             )}
 

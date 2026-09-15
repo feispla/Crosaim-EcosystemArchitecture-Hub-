@@ -1,7 +1,23 @@
 import React, { useState, useMemo } from 'react';
 import { CandidateApplication } from '../types';
 import { InterviewModal } from './InterviewModal';
-import { LayoutDashboard, Users, UserCheck, Check, ArrowRight, ShieldAlert, Sliders, Volume2, Sparkles, Search, Download, Filter } from 'lucide-react';
+import { RecruitmentFunnelDashboard } from './RecruitmentFunnelDashboard';
+import {
+  LayoutDashboard,
+  Users,
+  UserCheck,
+  Check,
+  ArrowRight,
+  ShieldAlert,
+  Sliders,
+  Volume2,
+  Sparkles,
+  Search,
+  Download,
+  Filter,
+  FileSpreadsheet,
+  BarChart3
+} from 'lucide-react';
 import { soundFX } from '../utils/audioFX';
 
 interface ControlCenterPreviewProps {
@@ -18,6 +34,8 @@ export const ControlCenterPreview: React.FC<ControlCenterPreviewProps> = ({
   const [interviewCandidate, setInterviewCandidate] = useState<CandidateApplication | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('ALL');
+  const [selectedRankFilter, setSelectedRankFilter] = useState<string>('ALL');
+  const [showAnalyticsDashboard, setShowAnalyticsDashboard] = useState<boolean>(true);
 
   const columns: Array<{ stage: CandidateApplication['stage']; label: string; color: string; indicator: string }> = [
     { stage: 'APPLY', label: '01. Postulación', color: 'border-amber-500/40', indicator: '🟡' },
@@ -51,19 +69,74 @@ export const ControlCenterPreview: React.FC<ControlCenterPreviewProps> = ({
     onRejectCandidate(id);
   };
 
-  // Filter candidates dynamically based on search and role
+  // Filter candidates dynamically based on search, role, and rank
   const filteredCandidates = useMemo(() => {
     return candidates.filter(cand => {
-      const matchesSearch = 
-        cand.riotId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        cand.tagLine.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        cand.discordTag.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        cand.trackingCode.toLowerCase().includes(searchQuery.toLowerCase());
+      const q = searchQuery.trim().toLowerCase();
+      const matchesSearch = !q ||
+        cand.riotId.toLowerCase().includes(q) ||
+        cand.tagLine.toLowerCase().includes(q) ||
+        cand.discordTag.toLowerCase().includes(q) ||
+        cand.trackingCode.toLowerCase().includes(q);
       
       const matchesRole = selectedRoleFilter === 'ALL' || cand.role === selectedRoleFilter;
-      return matchesSearch && matchesRole;
+      const matchesRank = selectedRankFilter === 'ALL' || cand.rank.startsWith(selectedRankFilter);
+      return matchesSearch && matchesRole && matchesRank;
     });
-  }, [candidates, searchQuery, selectedRoleFilter]);
+  }, [candidates, searchQuery, selectedRoleFilter, selectedRankFilter]);
+
+  // Export pipeline to downloadable CSV (offline reporting and historical analysis)
+  const handleExportCSV = () => {
+    soundFX.playSuccess();
+    const headers = [
+      'Codigo_Seguimiento',
+      'Riot_ID',
+      'Tag',
+      'Discord_Tag',
+      'Rol_Tactico',
+      'Rango_Valorant',
+      'Etapa_Actual',
+      'Estado_Aprobacion',
+      'Scrim_KDA',
+      'Rating_Score',
+      'Evaluador_Asignado',
+      'Fecha_Postulacion',
+      'Notas_Staff'
+    ];
+
+    const escapeCSV = (val: any) => {
+      const str = String(val ?? '').replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = candidates.map(c => [
+      escapeCSV(c.trackingCode),
+      escapeCSV(c.riotId),
+      escapeCSV(c.tagLine),
+      escapeCSV(c.discordTag),
+      escapeCSV(c.role),
+      escapeCSV(c.rank),
+      escapeCSV(c.stage),
+      escapeCSV(c.status),
+      escapeCSV(c.scrimKDA),
+      escapeCSV(c.ratingScore),
+      escapeCSV(c.assignedInterviewer || 'Staff Asignado'),
+      escapeCSV(c.submittedAt),
+      escapeCSV(c.notes || '')
+    ].join(','));
+
+    // UTF-8 BOM (\uFEFF) for optimal rendering in Microsoft Excel & Google Sheets
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', url);
+    downloadAnchor.setAttribute('download', `crosaim-pipeline-aspirantes-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    URL.revokeObjectURL(url);
+  };
 
   // Export pipeline to downloadable JSON
   const handleExportJSON = () => {
@@ -95,57 +168,120 @@ export const ControlCenterPreview: React.FC<ControlCenterPreviewProps> = ({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
+              id="btn-toggle-funnel"
+              onClick={() => {
+                soundFX.playClick();
+                setShowAnalyticsDashboard(!showAnalyticsDashboard);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono border flex items-center space-x-1.5 transition cursor-pointer ${
+                showAnalyticsDashboard
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+              }`}
+              title="Alternar vista del panel visual de embudo y cuello de botella"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>{showAnalyticsDashboard ? 'Ocultar Embudo' : 'Ver Embudo & Analítica'}</span>
+            </button>
+
+            <button
+              id="btn-download-csv"
+              onClick={handleExportCSV}
+              className="px-3 py-1.5 rounded-lg text-xs font-mono bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 flex items-center space-x-1.5 transition cursor-pointer"
+              title="Descargar pipeline completo en archivo CSV para reportes y análisis"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Descargar CSV</span>
+            </button>
+
+            <button
+              id="btn-export-json"
               onClick={handleExportJSON}
               className="px-3 py-1.5 rounded-lg text-xs font-mono bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center space-x-1.5 transition cursor-pointer"
               title="Exportar base de datos de aspirantes a JSON"
             >
               <Download className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Exportar Pipeline</span>
+              <span>Exportar JSON</span>
             </button>
+
             <span className="px-3 py-1.5 rounded-lg text-xs font-mono bg-slate-900 border border-slate-800 text-slate-300">
               ROL ACTIVO: <strong>Head Coach / Staff</strong>
-            </span>
-            <span className="px-3 py-1.5 rounded-lg text-xs font-mono bg-purple-500/10 text-purple-300 border border-purple-500/30 flex items-center space-x-1">
-              <Volume2 className="w-3 h-3" />
-              <span>DISCORD SYNC: ON</span>
             </span>
           </div>
         </div>
 
-        {/* Search and Role Filter Bar */}
-        <div className="mb-6 p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="relative w-full md:w-80">
+        {/* Visual Analytics Funnel Dashboard (Recharts) */}
+        {showAnalyticsDashboard && (
+          <RecruitmentFunnelDashboard candidates={candidates} />
+        )}
+
+        {/* Real-time Search and Filter Bar */}
+        <div className="mb-6 p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col lg:flex-row items-center justify-between gap-4">
+          <div className="relative w-full lg:w-96">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
+              id="input-control-center-search"
               type="text"
-              placeholder="Buscar por Riot ID, Discord o Código..."
+              placeholder="Buscar en tiempo real por Riot ID, Discord o Código..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white placeholder-slate-500 focus:border-cyan-400 outline-none"
+              className="w-full pl-9 pr-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white placeholder-slate-500 focus:border-cyan-400 outline-none"
             />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-400 hover:text-white"
+              >
+                ×
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center space-x-1.5 overflow-x-auto w-full md:w-auto">
-            <span className="text-[11px] font-mono text-slate-400 flex items-center space-x-1 mr-1">
-              <Filter className="w-3 h-3" />
-              <span>Rol:</span>
-            </span>
-            {['ALL', 'Duelist', 'Initiator', 'Controller', 'Sentinel'].map((role) => (
-              <button
-                key={role}
-                onClick={() => {
-                  soundFX.playClick();
-                  setSelectedRoleFilter(role);
-                }}
-                className={`px-2.5 py-1 rounded-md text-xs font-mono transition cursor-pointer ${
-                  selectedRoleFilter === role
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                    : 'bg-slate-950/60 text-slate-400 hover:text-white border border-slate-800'
-                }`}
-              >
-                {role === 'ALL' ? 'Todos' : role}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+            {/* Role filter */}
+            <div className="flex items-center space-x-1.5 overflow-x-auto">
+              <span className="text-[11px] font-mono text-slate-400 flex items-center space-x-1 mr-1">
+                <Filter className="w-3 h-3" />
+                <span>Rol:</span>
+              </span>
+              {['ALL', 'Duelist', 'Initiator', 'Controller', 'Sentinel'].map((role) => (
+                <button
+                  key={role}
+                  onClick={() => {
+                    soundFX.playClick();
+                    setSelectedRoleFilter(role);
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-mono transition cursor-pointer ${
+                    selectedRoleFilter === role
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                      : 'bg-slate-950/60 text-slate-400 hover:text-white border border-slate-800'
+                  }`}
+                >
+                  {role === 'ALL' ? 'Todos' : role}
+                </button>
+              ))}
+            </div>
+
+            {/* Rank filter */}
+            <div className="flex items-center space-x-1.5">
+              <span className="text-[11px] font-mono text-slate-400">Rango:</span>
+              {['ALL', 'Radiant', 'Immortal', 'Ascendant'].map((rk) => (
+                <button
+                  key={rk}
+                  onClick={() => {
+                    soundFX.playClick();
+                    setSelectedRankFilter(rk);
+                  }}
+                  className={`px-2 py-1 rounded-md text-xs font-mono transition cursor-pointer ${
+                    selectedRankFilter === rk
+                      ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40'
+                      : 'bg-slate-950/60 text-slate-400 hover:text-white border border-slate-800'
+                  }`}
+                >
+                  {rk === 'ALL' ? 'Todos' : rk}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
