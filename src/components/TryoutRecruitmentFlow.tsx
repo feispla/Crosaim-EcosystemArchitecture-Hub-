@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CandidateApplication } from '../types';
 import { soundFX } from '../utils/audioFX';
-import { UserCheck, ShieldCheck, Gamepad2, Send, CheckCircle2, Search, ArrowRight, Clock, Star } from 'lucide-react';
+import { UserCheck, ShieldCheck, Gamepad2, Send, CheckCircle2, Search, ArrowRight, Clock, Star, Copy, Check, Loader2 } from 'lucide-react';
 
 interface TryoutRecruitmentFlowProps {
   candidates: CandidateApplication[];
@@ -22,6 +22,8 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
   const [rank, setRank] = useState<CandidateApplication['rank']>('Immortal 3');
   const [experience, setExperience] = useState('');
   const [submittedCode, setSubmittedCode] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Tracking & Search State
   const [searchCode, setSearchCode] = useState(candidates[0]?.trackingCode || '');
@@ -50,7 +52,7 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
     }
   }, [candidates, trackedCandidate]);
 
-  const stages = [
+  const stages: Array<{ key: CandidateApplication['stage']; label: string; desc: string }> = [
     { key: 'APPLY', label: '01. APPLY', desc: 'Postulación y registro de credenciales' },
     { key: 'REVIEW', label: '02. REVIEW', desc: 'Validación de Riot MMR y VODs' },
     { key: 'INTERVIEW', label: '03. INTERVIEW', desc: 'Entrevista de cultura y horarios' },
@@ -60,7 +62,10 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
 
   const handleSubmitApplication = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!riotId || !discordTag) return;
+    if (!riotId || !discordTag || isSubmitting) return;
+
+    setIsSubmitting(true);
+    soundFX.playClick();
 
     const newCode = `CRO-${Math.floor(7000 + Math.random() * 2900)}`;
     const randomRating = Math.floor(88 + Math.random() * 10);
@@ -82,17 +87,41 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
       notes: experience || 'Postulación enviada vía CROSAIM Web Portal.'
     };
 
-    soundFX.playSuccess();
-    onNewApplication(newCandidate);
-    setSubmittedCode(newCode);
-    setTrackedCandidate(newCandidate);
-    setSearchCode(newCode);
-    
-    // Clear form
-    setRiotId('');
-    setTagLine('');
-    setDiscordTag('');
-    setExperience('');
+    setTimeout(() => {
+      soundFX.playSuccess();
+      onNewApplication(newCandidate);
+      setSubmittedCode(newCode);
+      setTrackedCandidate(newCandidate);
+      setSearchCode(newCode);
+      setIsSubmitting(false);
+
+      // Clear form inputs
+      setRiotId('');
+      setTagLine('');
+      setDiscordTag('');
+      setExperience('');
+    }, 600);
+  };
+
+  const handleCopyCode = (code: string) => {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(code);
+      setCopiedCode(true);
+      soundFX.playClick();
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const handleStageCardClick = (stageKey: CandidateApplication['stage']) => {
+    soundFX.playClick();
+    // Find a candidate in that stage or fallback
+    const match = candidates.find(c => c.stage === stageKey && c.status !== 'rejected') || candidates[0];
+    if (match) {
+      setTrackedCandidate(match);
+      setSearchCode(match.trackingCode);
+      setRealtimeSearch(match.trackingCode);
+    }
+    setActiveSubTab('track');
   };
 
   const handleTrack = () => {
@@ -171,33 +200,42 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
           </div>
         </div>
 
-        {/* Visual 5-Step Flow Line */}
+        {/* Visual 5-Step Flow Line - Interactive Stage Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-10">
           {stages.map((st, index) => {
             const isActive = index <= currentStageIndex;
             const isCurrent = index === currentStageIndex;
+            const countInStage = candidates.filter(c => c.stage === st.key && c.status !== 'rejected').length;
 
             return (
-              <div
+              <button
                 key={st.key}
-                className={`p-4 rounded-xl border transition-all ${
+                type="button"
+                onClick={() => handleStageCardClick(st.key)}
+                className={`p-4 rounded-xl border text-left transition-all cursor-pointer group hover:scale-[1.02] ${
                   isCurrent
                     ? 'border-emerald-400 bg-emerald-950/40 shadow-lg shadow-emerald-500/10'
                     : isActive
-                    ? 'border-slate-700 bg-slate-900/80 text-slate-300'
-                    : 'border-slate-800 bg-slate-950/40 text-slate-500'
+                    ? 'border-slate-700 bg-slate-900/80 text-slate-300 hover:border-emerald-500/50'
+                    : 'border-slate-800 bg-slate-950/40 text-slate-500 hover:border-slate-700'
                 }`}
+                title={`Ver aspirantes en ${st.label}`}
               >
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className={`text-[11px] font-mono font-bold ${isActive ? 'text-emerald-400' : 'text-slate-600'}`}>
+                  <span className={`text-[11px] font-mono font-bold ${isActive ? 'text-emerald-400' : 'text-slate-600 group-hover:text-slate-400'}`}>
                     {st.label}
                   </span>
-                  {isActive && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                  <div className="flex items-center space-x-1">
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950/80 text-slate-400">
+                      {countInStage}
+                    </span>
+                    {isActive && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                  </div>
                 </div>
                 <div className="text-xs text-slate-300 leading-snug">
                   {st.desc}
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -217,13 +255,41 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
               </p>
 
               {submittedCode && (
-                <div className="mb-6 p-4 rounded-xl bg-emerald-950/60 border border-emerald-500/50 text-emerald-200 text-xs space-y-1">
-                  <div className="font-bold text-sm flex items-center space-x-1.5 text-emerald-300">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>¡Postulación enviada exitosamente!</span>
+                <div className="mb-6 p-5 rounded-xl bg-emerald-950/70 border border-emerald-500/60 text-emerald-200 text-xs space-y-3 shadow-lg shadow-emerald-950/50">
+                  <div className="font-bold text-sm flex items-center space-x-2 text-emerald-300">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                    <span>¡Postulación enviada exitosamente a la cola oficial de CROSAIM!</span>
                   </div>
-                  <div>Tu código de seguimiento es: <strong className="font-mono text-white text-sm">{submittedCode}</strong></div>
-                  <div className="text-slate-400">Puedes consultarlo en la pestaña &quot;Rastrear Postulación&quot; o en nuestro canal de Discord.</div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-slate-950/80 border border-emerald-500/30">
+                    <div>
+                      <div className="text-[10px] font-mono text-slate-400 uppercase">Tu Código de Seguimiento Oficial:</div>
+                      <div className="font-mono text-lg font-extrabold text-white tracking-wider">{submittedCode}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCode(submittedCode)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-mono flex items-center space-x-1.5 transition cursor-pointer"
+                    >
+                      {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedCode ? '¡Copiado!' : 'Copiar Código'}</span>
+                    </button>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+                    <span className="text-slate-400 text-[11px]">
+                      Se ha transmitido la señal a Discord y a la base de datos de evaluadores.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        soundFX.playClick();
+                        setActiveSubTab('track');
+                      }}
+                      className="w-full sm:w-auto px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center space-x-1.5 transition cursor-pointer shadow"
+                    >
+                      <span>Ver Expediente en el Rastreador</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -363,10 +429,24 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
                 <button
                   id="btn-submit-application"
                   type="submit"
-                  className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 flex items-center justify-center space-x-2 transition shadow-lg shadow-emerald-500/20 cursor-pointer"
+                  disabled={isSubmitting}
+                  className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center space-x-2 transition shadow-lg shadow-emerald-500/20 cursor-pointer ${
+                    isSubmitting
+                      ? 'bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-700'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950'
+                  }`}
                 >
-                  <Send className="w-4 h-4" />
-                  <span>Enviar Postulación a Tryout</span>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                      <span>Sincronizando con Riot Games & Discord...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>Enviar Postulación a Tryout</span>
+                    </>
+                  )}
                 </button>
               </form>
             </div>
@@ -407,12 +487,14 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
                     <button
                       key={code}
                       onClick={() => {
+                        soundFX.playClick();
                         setSearchCode(code);
+                        setRealtimeSearch(code);
                         setActiveSubTab('track');
                         const found = candidates.find(c => c.trackingCode === code);
                         if (found) setTrackedCandidate(found);
                       }}
-                      className="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-cyan-300 transition cursor-pointer"
+                      className="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 hover:border-cyan-400 text-cyan-300 transition cursor-pointer"
                     >
                       {code}
                     </button>
@@ -426,7 +508,31 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
           /* Track Sub-tab */
           <div className="bg-slate-900/90 rounded-2xl border border-slate-700/80 p-6 sm:p-8">
             
-            {/* Real-time Search Bar */}
+            {/* Real-time Search Bar with Back Button */}
+            <div className="flex flex-col sm:flex-row items-center justify-between mb-6 pb-4 border-b border-slate-800 gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center space-x-2">
+                  <Search className="w-4 h-4 text-emerald-400" />
+                  <span>Rastreador & Auditoría de Postulaciones</span>
+                </h3>
+                <p className="text-slate-400 text-xs mt-0.5">
+                  Consulta el avance de tu prueba en tiempo real sincronizado con el Control Center.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  soundFX.playClick();
+                  setActiveSubTab('apply');
+                }}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-mono bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer flex items-center space-x-1.5"
+              >
+                <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>+ Nueva Postulación</span>
+              </button>
+            </div>
+
             <div className="max-w-2xl mx-auto mb-8">
               <label className="block text-xs font-mono text-slate-300 mb-2 text-center uppercase tracking-wider">
                 Búsqueda en Tiempo Real de Aspirantes (Riot ID, Tag o Código de Seguimiento)
@@ -507,9 +613,20 @@ export const TryoutRecruitmentFlow: React.FC<TryoutRecruitmentFlowProps> = ({
               <div className="bg-slate-950 rounded-2xl border border-slate-800 p-6 max-w-2xl mx-auto space-y-6">
                 <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
                   <div>
-                    <span className="text-[11px] font-mono text-emerald-400 font-bold">
-                      EXPEDIENTE {trackedCandidate.trackingCode}
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[11px] font-mono text-emerald-400 font-bold">
+                        EXPEDIENTE {trackedCandidate.trackingCode}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyCode(trackedCandidate.trackingCode)}
+                        className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer flex items-center space-x-1"
+                        title="Copiar código"
+                      >
+                        {copiedCode ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                        <span>{copiedCode ? 'Copiado' : 'Copiar'}</span>
+                      </button>
+                    </div>
                     <h4 className="text-xl font-bold text-white mt-0.5">
                       {trackedCandidate.riotId}#{trackedCandidate.tagLine}
                     </h4>

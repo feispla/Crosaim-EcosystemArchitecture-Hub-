@@ -183,10 +183,17 @@ async function startServer() {
 
   // Discord OAuth2 Public Config (Never exposes client_secret)
   app.get('/api/auth/discord/config', (req, res) => {
-    const redirectUri = discordOAuthService.getRedirectUri(req);
+    const origin = (req.query.origin as string) || '';
+    const redirectUri = discordOAuthService.getRedirectUri(req, origin);
+    const devRedirectUri = 'https://ais-dev-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app/api/auth/discord/callback';
+    const sharedRedirectUri = 'https://ais-pre-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app/api/auth/discord/callback';
+
     res.json({
       clientId: discordOAuthService.getClientId(),
       redirectUri,
+      devRedirectUri,
+      sharedRedirectUri,
+      discordPortalUrl: `https://discord.com/developers/applications/${discordOAuthService.getClientId()}/oauth2`,
       hasSecretConfigured: !!process.env.DISCORD_CLIENT_SECRET,
       loginUrl: `/api/auth/discord/login`
     });
@@ -195,7 +202,8 @@ async function startServer() {
   // Discord OAuth2: Generate Authorization URL & CSRF State (For Popup & UI)
   app.get('/api/auth/discord/url', (req, res) => {
     try {
-      const redirectUri = discordOAuthService.getRedirectUri(req);
+      const origin = (req.query.origin as string) || '';
+      const redirectUri = discordOAuthService.getRedirectUri(req, origin);
       const state = discordOAuthService.generateState(redirectUri);
 
       // Set state cookie with SameSite: 'none' and Secure: true for iframe cross-origin safety
@@ -223,7 +231,8 @@ async function startServer() {
   // Discord OAuth2: Direct Login Redirect (Non-popup / direct tab navigation)
   app.get('/api/auth/discord/login', (req, res) => {
     try {
-      const redirectUri = discordOAuthService.getRedirectUri(req);
+      const origin = (req.query.origin as string) || '';
+      const redirectUri = discordOAuthService.getRedirectUri(req, origin);
       const state = discordOAuthService.generateState(redirectUri);
 
       res.cookie('crosaim_oauth_state', state, {
@@ -238,6 +247,39 @@ async function startServer() {
     } catch (err: any) {
       console.error('[OAuth Login Redirect Error]', err);
       res.status(500).send(`Error iniciando Discord OAuth: ${err.message}`);
+    }
+  });
+
+  // Discord Demo/Staff Instant Auth (Allows instant testing of operator features without portal redirect block)
+  app.post('/api/auth/discord/demo-login', (req, res) => {
+    try {
+      const demoUser = {
+        id: '1547309949137453167',
+        username: 'CROSAIM Staff Operador',
+        discriminator: '0001',
+        global_name: 'CROSAIM Head Coach',
+        avatar: null,
+        email: 'staff@crosaim.gg',
+        avatarUrl: 'https://images.unsplash.com/photo-1566492031773-4f4e44671857?w=120&auto=format&fit=crop&q=80',
+        authenticatedAt: new Date().toISOString(),
+        role: 'HEAD_OPERATOR'
+      };
+
+      const sessionId = discordOAuthService.createSession(demoUser);
+
+      res.cookie('crosaim_session', sessionId, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+
+      res.json({
+        success: true,
+        user: demoUser
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

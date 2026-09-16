@@ -51,14 +51,42 @@ export class DiscordOAuthService {
     return (process.env.DISCORD_CLIENT_SECRET || '').trim();
   }
 
-  public getRedirectUri(req?: express.Request): string {
-    // 1. Explicit environment variable
-    if (process.env.DISCORD_REDIRECT_URI && process.env.DISCORD_REDIRECT_URI.startsWith('http')) {
+  public getRedirectUri(req?: express.Request, clientOrigin?: string): string {
+    // 1. Explicit client origin passed from window.location.origin
+    if (clientOrigin && clientOrigin.startsWith('http') && !clientOrigin.includes('crosaim-centel.ai.studio')) {
+      return `${clientOrigin.replace(/\/$/, '')}/api/auth/discord/callback`;
+    }
+
+    // 2. Explicit environment variable if valid and not the dummy domain
+    if (
+      process.env.DISCORD_REDIRECT_URI &&
+      process.env.DISCORD_REDIRECT_URI.startsWith('http') &&
+      !process.env.DISCORD_REDIRECT_URI.includes('crosaim-centel.ai.studio')
+    ) {
       return process.env.DISCORD_REDIRECT_URI.trim();
     }
 
-    // 2. Exact mandated callback URI requested
-    return 'https://crosaim-centel.ai.studio/api/auth/discord/callback';
+    // 3. Extract origin from request headers (behind reverse proxy)
+    if (req) {
+      const explicitOrigin = (req.query?.origin as string) || (req.headers?.origin as string);
+      if (explicitOrigin && explicitOrigin.startsWith('http') && !explicitOrigin.includes('crosaim-centel.ai.studio')) {
+        return `${explicitOrigin.replace(/\/$/, '')}/api/auth/discord/callback`;
+      }
+
+      const host = (req.headers['x-forwarded-host'] as string) || req.get('host') || req.headers.host;
+      if (host && !host.includes('crosaim-centel.ai.studio')) {
+        const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
+        return `${proto}://${host}/api/auth/discord/callback`;
+      }
+    }
+
+    // 4. Injected APP_URL from AI Studio environment
+    if (process.env.APP_URL && process.env.APP_URL.startsWith('http') && !process.env.APP_URL.includes('crosaim-centel.ai.studio')) {
+      return `${process.env.APP_URL.replace(/\/$/, '')}/api/auth/discord/callback`;
+    }
+
+    // 5. Fallback to Cloud Run Development App URL
+    return 'https://ais-dev-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app/api/auth/discord/callback';
   }
 
   /**

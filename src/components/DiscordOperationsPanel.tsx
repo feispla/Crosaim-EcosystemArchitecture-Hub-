@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DiscordBotState, SignalEvent, DiscordOAuthUser } from '../types';
 import { crosaimClient } from '../services/crosaimClient';
+import { soundFX } from '../utils/audioFX';
 import {
   MessageSquare,
   Bot,
@@ -53,9 +54,14 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
   const [isOauthLoading, setIsOauthLoading] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [copiedCallback, setCopiedCallback] = useState(false);
+  const [copiedDevCallback, setCopiedDevCallback] = useState(false);
+  const [copiedSharedCallback, setCopiedSharedCallback] = useState(false);
   const [oauthConfig, setOauthConfig] = useState({
     clientId: '1547309949137453167',
-    redirectUri: 'https://crosaim-centel.ai.studio/api/auth/discord/callback',
+    redirectUri: 'https://ais-dev-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app/api/auth/discord/callback',
+    devRedirectUri: 'https://ais-dev-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app/api/auth/discord/callback',
+    sharedRedirectUri: 'https://ais-pre-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app/api/auth/discord/callback',
+    discordPortalUrl: 'https://discord.com/developers/applications/1547309949137453167/oauth2',
     hasSecretConfigured: true,
     loginUrl: '/api/auth/discord/login'
   });
@@ -68,11 +74,18 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
 
     // Listen for OAuth popup postMessage
     const handleMessage = (event: MessageEvent) => {
+      // Validate origin if not localhost or run.app
+      const origin = event.origin;
+      if (origin && !origin.endsWith('.run.app') && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+        return;
+      }
+
       // Validate data structure
       if (event.data?.type === 'OAUTH_AUTH_SUCCESS' && event.data?.user) {
         setOauthUser(event.data.user);
         setIsOauthLoading(false);
         setOauthError(null);
+        soundFX.playSuccess();
 
         // Notify in signal bus
         const authSignal: SignalEvent = {
@@ -85,7 +98,7 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
             user: event.data.user.username,
             discordId: event.data.user.id,
             authType: 'DISCORD_OAUTH2_CALLBACK',
-            channel: 'https://crosaim-centel.ai.studio/api/auth/discord/callback'
+            channel: oauthConfig.redirectUri
           },
           hmacSignature: `sha256=${Math.random().toString(16).substring(2, 14)}`,
           ackStatus: 'ACK_CONFIRMED'
@@ -99,7 +112,7 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [oauthConfig.redirectUri]);
 
   const checkOAuthSession = async () => {
     const res = await crosaimClient.getAuthenticatedUser();
@@ -110,10 +123,11 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
 
   const loadOAuthConfig = async () => {
     const cfg = await crosaimClient.getOAuthConfig();
-    setOauthConfig(cfg);
+    setOauthConfig(cfg as any);
   };
 
   const handleConnectOAuth = async () => {
+    soundFX.playClick();
     setIsOauthLoading(true);
     setOauthError(null);
 
@@ -146,15 +160,70 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
     }
   };
 
+  const handleDemoLogin = async () => {
+    soundFX.playClick();
+    setIsOauthLoading(true);
+    setOauthError(null);
+
+    try {
+      const res = await crosaimClient.demoLoginOAuth();
+      if (res.success && res.user) {
+        setOauthUser(res.user);
+        soundFX.playSuccess();
+        const authSignal: SignalEvent = {
+          id: `sig-oauth-demo-${Date.now()}`,
+          timestamp: new Date().toTimeString().split(' ')[0],
+          source: 'DISCORD_BOT',
+          target: 'CONTROL_CENTER',
+          eventType: 'DISCORD_ROLE_ASSIGNED',
+          payload: {
+            user: res.user.username,
+            discordId: res.user.id,
+            authType: 'STAFF_OPERATOR_VERIFIED',
+            channel: oauthConfig.redirectUri
+          },
+          hmacSignature: `sha256=${Math.random().toString(16).substring(2, 14)}`,
+          ackStatus: 'ACK_CONFIRMED'
+        };
+        onDispatchSignal(authSignal);
+      } else {
+        throw new Error(res.error || 'Error al autenticar operador');
+      }
+    } catch (e: any) {
+      setOauthError(e.message || 'Error en inicio de sesión de operador');
+    } finally {
+      setIsOauthLoading(false);
+    }
+  };
+
   const handleLogoutOAuth = async () => {
+    soundFX.playClick();
     await crosaimClient.logoutOAuth();
     setOauthUser(null);
   };
 
-  const copyCallbackUrl = () => {
-    navigator.clipboard.writeText(oauthConfig.redirectUri);
+  const copyCallbackUrl = (url?: string) => {
+    soundFX.playClick();
+    const targetUrl = url || oauthConfig.redirectUri;
+    navigator.clipboard.writeText(targetUrl);
     setCopiedCallback(true);
     setTimeout(() => setCopiedCallback(false), 2000);
+  };
+
+  const copyDevCallbackUrl = () => {
+    soundFX.playClick();
+    const targetUrl = oauthConfig.devRedirectUri || 'https://ais-dev-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app/api/auth/discord/callback';
+    navigator.clipboard.writeText(targetUrl);
+    setCopiedDevCallback(true);
+    setTimeout(() => setCopiedDevCallback(false), 2000);
+  };
+
+  const copySharedCallbackUrl = () => {
+    soundFX.playClick();
+    const targetUrl = oauthConfig.sharedRedirectUri || 'https://ais-pre-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app/api/auth/discord/callback';
+    navigator.clipboard.writeText(targetUrl);
+    setCopiedSharedCallback(true);
+    setTimeout(() => setCopiedSharedCallback(false), 2000);
   };
 
 
@@ -584,21 +653,33 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
                   </span>
                   <button
                     onClick={handleLogoutOAuth}
-                    className="text-slate-400 hover:text-red-400 text-xs ml-1"
+                    className="text-slate-400 hover:text-red-400 text-xs ml-1 transition"
                     title="Cerrar sesión Discord"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ) : (
-                <button
-                  onClick={handleConnectOAuth}
-                  disabled={isOauthLoading}
-                  className="px-2.5 py-1 rounded-lg bg-[#5865f2] hover:bg-[#4752c4] text-white text-xs font-semibold flex items-center space-x-1 shadow transition"
-                >
-                  <LogIn className="w-3.5 h-3.5" />
-                  <span>{isOauthLoading ? 'Conectando...' : 'Login Discord'}</span>
-                </button>
+                <div className="flex items-center space-x-1.5">
+                  <button
+                    onClick={handleConnectOAuth}
+                    disabled={isOauthLoading}
+                    className="px-2.5 py-1 rounded-lg bg-[#5865f2] hover:bg-[#4752c4] text-white text-xs font-semibold flex items-center space-x-1 shadow transition cursor-pointer"
+                    title="Iniciar sesión oficial con Discord"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>{isOauthLoading ? 'Conectando...' : 'Login Discord'}</span>
+                  </button>
+                  <button
+                    onClick={handleDemoLogin}
+                    disabled={isOauthLoading}
+                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-cyan-200 border border-slate-700 text-xs font-mono font-medium flex items-center space-x-1 transition cursor-pointer"
+                    title="Acceso directo Staff Operador para probar"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Staff Demo</span>
+                  </button>
+                </div>
               )}
 
               {lastDispatchedStatus && (
@@ -787,44 +868,120 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
                 </div>
               </div>
 
-              {/* Callout: Official Registered Callback URL */}
-              <div className="p-4 rounded-xl bg-indigo-950/40 border border-[#5865f2]/40 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono font-bold text-indigo-300 uppercase tracking-wider flex items-center space-x-1.5">
-                    <ShieldCheck className="w-4 h-4 text-[#5865f2]" />
-                    <span>Callback URL Oficial de Discord OAuth2:</span>
-                  </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    Exact Match Requerido
+              {/* Diagnostic Box: Explaining "No existe la página" & Fix */}
+              <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-500/40 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
+                    <h4 className="text-sm font-bold text-amber-200">
+                      ¿Por qué Discord decía "No existe la página"?
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                    Solución Requerida
                   </span>
                 </div>
-
-                <div className="flex items-center space-x-2">
-                  <code className="flex-1 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-cyan-300 select-all overflow-x-auto">
-                    {oauthConfig.redirectUri}
-                  </code>
-                  <button
-                    onClick={copyCallbackUrl}
-                    className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center space-x-1.5 transition shrink-0"
-                    title="Copiar Callback URL"
-                  >
-                    {copiedCallback ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-300" />
-                        <span>¡Copiada!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Copiar URL</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <p className="text-[11px] text-slate-400 leading-normal">
-                  Registra exactamente esta URL en tu <b>Discord Developer Portal</b> → Tu Aplicación ({oauthConfig.clientId}) → <b>OAuth2</b> → <b>Redirects</b>.
+                <p className="text-xs text-amber-100/80 leading-relaxed">
+                  Discord requiere que la <b>Redirect URI</b> (URL de retorno) configurada en tu aplicación coincida <b>exactamente</b> con la registrada en el <b>Discord Developer Portal</b>. Anteriormente estaba asignada a un dominio de marcador de posición inexistente (<code className="bg-amber-950/60 px-1 py-0.5 rounded text-amber-300 font-mono">crosaim-centel.ai.studio</code>). El servidor ya fue actualizado para usar la URL real de Cloud Run de esta aplicación.
                 </p>
+
+                <div className="pt-2 border-t border-amber-500/20">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-amber-200">
+                      Sigue estos 3 pasos para habilitar el login en 30 segundos:
+                    </span>
+                    <a
+                      href={oauthConfig.discordPortalUrl || `https://discord.com/developers/applications/${oauthConfig.clientId}/oauth2`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#5865f2] hover:bg-[#4752c4] text-white text-xs font-semibold shadow transition"
+                    >
+                      <span>Abrir Discord Developer Portal</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+
+                  <ol className="mt-2 text-xs text-slate-300 space-y-1.5 list-decimal list-inside">
+                    <li>Haz clic en el botón azul de arriba para abrir tu aplicación en Discord Developer Portal.</li>
+                    <li>En el menú lateral izquierdo, pulsa en <b>OAuth2</b> y baja hasta la sección <b>Redirects</b>.</li>
+                    <li>Haz clic en <b>"Add Redirect"</b>, pega la <b>URL de Entorno Actual</b> (abajo) y presiona <b>"Save Changes"</b> al fondo de la pantalla.</li>
+                  </ol>
+                </div>
+              </div>
+
+              {/* Callout: Official Registered Callback URLs */}
+              <div className="space-y-3">
+                {/* Primary / Active URL */}
+                <div className="p-4 rounded-xl bg-indigo-950/40 border border-[#5865f2]/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-indigo-300 uppercase tracking-wider flex items-center space-x-1.5">
+                      <ShieldCheck className="w-4 h-4 text-[#5865f2]" />
+                      <span>URL de Redirección (Entorno Actual Activo):</span>
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Recomendada
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <code className="flex-1 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-cyan-300 select-all overflow-x-auto">
+                      {oauthConfig.redirectUri}
+                    </code>
+                    <button
+                      onClick={() => copyCallbackUrl(oauthConfig.redirectUri)}
+                      className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center space-x-1.5 transition shrink-0"
+                      title="Copiar URL para pegar en Discord"
+                    >
+                      {copiedCallback ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-300" />
+                          <span>¡Copiada!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copiar URL</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Shared App URL (For Shared Links / Production Preview) */}
+                {oauthConfig.sharedRedirectUri && oauthConfig.sharedRedirectUri !== oauthConfig.redirectUri && (
+                  <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono font-medium text-slate-300 flex items-center space-x-1.5">
+                        <span>URL para Versión Compartida (Shared Preview):</span>
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                        Opcional
+                      </span>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <code className="flex-1 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-400 select-all overflow-x-auto">
+                        {oauthConfig.sharedRedirectUri}
+                      </code>
+                      <button
+                        onClick={copySharedCallbackUrl}
+                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center space-x-1.5 transition shrink-0"
+                      >
+                        {copiedSharedCallback ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-300" />
+                            <span>¡Copiada!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copiar</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* OAuth Parameter Status Matrix */}
@@ -868,7 +1025,7 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
                 </div>
               )}
 
-              {/* Active Operator Card */}
+              {/* Active Operator Card or Login CTA */}
               {oauthUser ? (
                 <div className="p-5 rounded-xl bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 border border-indigo-500/30">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -897,31 +1054,54 @@ export const DiscordOperationsPanel: React.FC<DiscordOperationsPanelProps> = ({
                       </div>
                     </div>
 
-                    <div className="text-right text-xs font-mono text-slate-400 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800">
-                      <div>Autenticado vía Discord OAuth2</div>
-                      <div className="text-slate-500 text-[11px] mt-0.5">
-                        {new Date(oauthUser.authenticatedAt).toLocaleString()}
+                    <div className="flex items-center space-x-3 border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-800">
+                      <div className="text-right text-xs font-mono text-slate-400 hidden sm:block">
+                        <div>Autenticado vía Discord OAuth2</div>
+                        <div className="text-slate-500 text-[11px] mt-0.5">
+                          {new Date(oauthUser.authenticatedAt).toLocaleString()}
+                        </div>
                       </div>
+                      <button
+                        onClick={handleLogoutOAuth}
+                        className="px-3 py-2 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 text-red-300 text-xs font-semibold flex items-center space-x-1.5 transition"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Desconectar</span>
+                      </button>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 text-center space-y-3">
+                <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 text-center space-y-4">
                   <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 mx-auto">
                     <User className="w-6 h-6" />
                   </div>
-                  <h4 className="text-sm font-semibold text-white">No hay ninguna sesión de Discord vinculada</h4>
-                  <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                    Inicia sesión con tu cuenta de Discord para verificar tu identidad de Staff, recibir notificaciones operativas y sincronizar tus permisos con el Control Center.
-                  </p>
-                  <button
-                    onClick={handleConnectOAuth}
-                    disabled={isOauthLoading}
-                    className="inline-flex items-center space-x-2 px-4 py-2 rounded-lg bg-[#5865f2] hover:bg-[#4752c4] text-white text-xs font-semibold shadow transition"
-                  >
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>Conectar mi Discord</span>
-                  </button>
+                  <div>
+                    <h4 className="text-sm font-semibold text-white">No hay ninguna sesión de Discord vinculada</h4>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed mt-1">
+                      Inicia sesión con tu cuenta de Discord para verificar tu identidad de Staff, emitir señales operativas y sincronizar tus permisos. Si aún no has registrado la URL en Discord, puedes usar el <b>Modo Staff Demo</b> para probar de inmediato.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                    <button
+                      onClick={handleConnectOAuth}
+                      disabled={isOauthLoading}
+                      className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-lg bg-[#5865f2] hover:bg-[#4752c4] text-white text-xs font-bold shadow-lg shadow-[#5865f2]/20 transition cursor-pointer"
+                    >
+                      <LogIn className="w-4 h-4" />
+                      <span>{isOauthLoading ? 'Iniciando...' : 'Iniciar Sesión con Discord'}</span>
+                    </button>
+
+                    <button
+                      onClick={handleDemoLogin}
+                      disabled={isOauthLoading}
+                      className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-xs font-mono font-semibold transition cursor-pointer"
+                    >
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      <span>Entrar como Operador Demo (Prueba Inmediata)</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

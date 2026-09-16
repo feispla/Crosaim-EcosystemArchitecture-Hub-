@@ -94,15 +94,29 @@ export class CrosaimClient {
   /**
    * Fetch OAuth configuration and public redirect URI
    */
-  public async getOAuthConfig(): Promise<{ clientId: string; redirectUri: string; hasSecretConfigured: boolean; loginUrl: string }> {
+  public async getOAuthConfig(): Promise<{
+    clientId: string;
+    redirectUri: string;
+    devRedirectUri?: string;
+    sharedRedirectUri?: string;
+    discordPortalUrl?: string;
+    hasSecretConfigured: boolean;
+    loginUrl: string;
+  }> {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const query = origin ? `?origin=${encodeURIComponent(origin)}` : '';
     try {
-      const res = await fetch('/api/auth/discord/config');
+      const res = await fetch(`/api/auth/discord/config${query}`);
       if (!res.ok) throw new Error('Error al consultar configuración OAuth');
       return await res.json();
     } catch {
+      const fallbackOrigin = origin || 'https://ais-dev-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app';
       return {
         clientId: '1547309949137453167',
-        redirectUri: 'https://crosaim-centel.ai.studio/api/auth/discord/callback',
+        redirectUri: `${fallbackOrigin}/api/auth/discord/callback`,
+        devRedirectUri: 'https://ais-dev-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app/api/auth/discord/callback',
+        sharedRedirectUri: 'https://ais-pre-f2po5w7ntpgyehs6yse5sl-219686599777.us-east5.run.app/api/auth/discord/callback',
+        discordPortalUrl: 'https://discord.com/developers/applications/1547309949137453167/oauth2',
         hasSecretConfigured: true,
         loginUrl: '/api/auth/discord/login'
       };
@@ -126,12 +140,27 @@ export class CrosaimClient {
    * Request Discord OAuth2 Authorization URL and initiate popup
    */
   public async getOAuthAuthorizationUrl(): Promise<{ success: boolean; url?: string; state?: string; redirectUri?: string; error?: string }> {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const query = origin ? `?origin=${encodeURIComponent(origin)}` : '';
     try {
-      const res = await fetch('/api/auth/discord/url');
+      const res = await fetch(`/api/auth/discord/url${query}`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `HTTP ${res.status}`);
       }
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Instant Staff/Operator Demo login
+   */
+  public async demoLoginOAuth(): Promise<{ success: boolean; user?: any; error?: string }> {
+    try {
+      const res = await fetch('/api/auth/discord/demo-login', { method: 'POST' });
+      if (!res.ok) throw new Error('Error al iniciar sesión demo');
       return await res.json();
     } catch (err: any) {
       return { success: false, error: err.message };
